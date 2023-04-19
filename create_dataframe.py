@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pdf2docx import Converter
 import wikipedia
 
-wikipedia.set_lang("ru")
+pd.set_option('display.max_colwidth', 200)
 
 
 @dataclass
@@ -43,16 +43,44 @@ def convert_files() -> list:
     return added_files
 
 
-@lru_cache
-def get_geocode(organization: str) -> tuple[pd.Series, pd.Series]:
+def get_geocode_osm(organization: str) -> tuple[pd.Series, pd.Series]:
     geocode = ox.geocode_to_gdf(organization)
     return geocode.lat, geocode.lon
 
 
+def get_geocode_wiki(organization: str) -> tuple[Decimal, Decimal] | tuple[None, None]:
+    if not organization:
+        return None, None
+
+    wikipedia.set_lang("ru")
+    pages = wikipedia.search(organization, results=5)
+
+    for page in pages:
+        try:
+            return wikipedia.page(page).coordinates
+        except (KeyError, wikipedia.exceptions.DisambiguationError):
+            continue
+
+    return None, None
+
+
 @lru_cache
-def get_geocode_wiki(organization: str) -> tuple[Decimal, Decimal]:
-    page = wikipedia.search(organization)
-    return wikipedia.page(page[0]).coordinates
+def get_geocode(organization: str):
+    try:
+        return get_geocode_osm(organization)
+    except ValueError:
+        return get_geocode_wiki(organization)
+
+
+@lru_cache
+def get_short_name(organization: str) -> str:
+    search_short_name = re.search(r'(?<=образования).+|(?<=науки).+|(?<=предприятие).+', organization)
+
+    if not search_short_name:
+        search_short_name = re.search(
+            r'(?<=учреждение).+|(?<=организация).+|(?<=ответственностью).+', organization)
+
+    return search_short_name[0] if search_short_name else organization
 
 
 def process_document(document: Document, main_df: pd.DataFrame) -> pd.DataFrame:
@@ -78,28 +106,25 @@ def process_document(document: Document, main_df: pd.DataFrame) -> pd.DataFrame:
     for table in document.tables:
         for row in table.rows:
             organization = row.cells[table_struct.organization].text.replace('\n', '')
-            search_short_name = re.search(r'(?<=образования).+|(?<=науки).+|(?<=предприятие).+', organization)
+            project_name = row.cells[table_struct.project_name].text.replace('\n', '')
 
-            if not search_short_name:
-                search_short_name = re.search(
-                    r'(?<=учреждение).+|(?<=организация).+|(?<=ответственностью).+', organization)
+            if not row.cells[0].text:
+                last_row = df.iloc[[df.shape[0] - 1]]
 
-            short_name = search_short_name[0] if search_short_name else organization
+                project_name = last_row.project_name.to_string(index=False) + project_name
+                organization = last_row.organization.to_string(index=False) + organization
 
-            try:
-                lat, lon = get_geocode(short_name)
-            except ValueError:
-                try:
-                    lat, lon = get_geocode_wiki(short_name)
-                except (KeyError, IndexError, wikipedia.exceptions.WikipediaException):
-                    lat = lon = None
+                df.drop(labels=[df.shape[0] - 1], axis=0)
+
+            short_name = get_short_name(organization)
+            lat, lon = get_geocode(short_name)
 
             current_row = pd.DataFrame(
                 dict(
                     zip(
                         table_struct.__dict__.keys(),
                         [
-                            row.cells[table_struct.project_name].text.replace('\n', ''),
+                            project_name,
                             table_struct.grant_name,
                             table_struct.year,
                             organization,
