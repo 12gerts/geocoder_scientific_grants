@@ -58,7 +58,7 @@ def get_geocode_wiki(organization: str) -> tuple[Decimal, Decimal] | tuple[None,
     for page in pages:
         try:
             return wikipedia.page(page).coordinates
-        except (KeyError, wikipedia.exceptions.DisambiguationError):
+        except (KeyError, wikipedia.exceptions.DisambiguationError, wikipedia.exceptions.PageError):
             continue
 
     return None, None
