@@ -80,7 +80,9 @@ def get_short_name(organization: str) -> str:
         search_short_name = re.search(
             r'(?<=учреждение).+|(?<=организация).+|(?<=ответственностью).+', organization)
 
-    return search_short_name[0] if search_short_name else organization
+    if search_short_name and len(search_short_name[0]) > 5:
+        return search_short_name[0]
+    return organization
 
 
 def process_document(document: Document, main_df: pd.DataFrame) -> pd.DataFrame:
@@ -154,4 +156,3 @@ def create_dataframe():
     main_df.to_csv(r'grants.csv', index=False)
 
 
-create_dataframe()
