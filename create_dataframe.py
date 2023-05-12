@@ -2,6 +2,7 @@ import os
 import re
 from decimal import Decimal
 from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 from docx import Document
@@ -33,19 +34,26 @@ def convert_files() -> list:
         if pdf_file.startswith('.'):
             continue
 
-        docx_file = f'processed_project/{pdf_file[:-4]}.docx'
+        filename_docx = Path(f'{pdf_file[:-4]}.docx')
+        path_docx = Path('processed_project')
+
+        docx_file = path_docx / filename_docx
         if not os.path.exists(docx_file):
             added_files.append(docx_file)
-            cv = Converter(f'projects/{pdf_file}')
-            cv.convert(docx_file)
+
+            filename_pdf = Path(pdf_file)
+            path_pdf = Path('projects')
+
+            cv = Converter(str(path_pdf / filename_pdf))
+            cv.convert(str(docx_file))
             cv.close()
 
     return added_files
 
 
-def get_geocode_osm(organization: str) -> tuple[pd.Series, pd.Series]:
+def get_geocode_osm(organization: str) -> tuple[float, float]:
     geocode = ox.geocode_to_gdf(organization)
-    return geocode.lat, geocode.lon
+    return float(geocode.lat.iloc[0]), float(geocode.lon.iloc[0])
 
 
 def get_geocode_wiki(organization: str) -> tuple[Decimal, Decimal] | tuple[None, None]:
@@ -72,17 +80,46 @@ def get_geocode(organization: str):
         return get_geocode_wiki(organization)
 
 
+def delete_quotes(organization: str) -> str:
+    organization = organization.replace('«', '"').replace('»', '"')
+
+    if not organization.count('"'):
+        return organization
+
+    if organization.count('"') % 2 == 0 and organization[0] == organization[-1] == '"':
+        return organization[1:-1]
+
+    if organization.count('"') == 3 and organization[0] == '"':
+        return organization[1:]
+
+    return organization
+
+
 @lru_cache
 def get_short_name(organization: str) -> str:
-    search_short_name = re.search(r'(?<=образования).+|(?<=науки).+|(?<=предприятие).+', organization)
+    if organization.upper() == organization:
+        organization = organization.capitalize()
+    search_short_name = re.search(r'(?<=образования).+|(?<=науки).+|(?<=предприятие).+|(?<=фонд).+',
+                                  organization)
 
-    if not search_short_name:
+    if not search_short_name or len(search_short_name.group(0)) < 5:
         search_short_name = re.search(
-            r'(?<=учреждение).+|(?<=организация).+|(?<=ответственностью).+', organization)
+            r'(?<=[уУ]чреждение).+|(?<=организация).+|(?<=ответственностью).+|(?<=общество).+',
+            organization
+        )
+
+        if search_short_name and 'Концерн' in search_short_name.group(0):
+            search_short_name = re.search('(?<=Концерн).+', search_short_name[0])
 
     if search_short_name and len(search_short_name[0]) > 5:
-        return search_short_name[0]
-    return organization
+        organization = delete_quotes(search_short_name[0].strip())
+
+        if organization[0].lower() == organization[0]:
+            return organization.capitalize()
+
+        return organization
+
+    return organization.strip()
 
 
 def process_document(document: Document, main_df: pd.DataFrame) -> pd.DataFrame:
@@ -154,5 +191,4 @@ def create_dataframe():
         main_df = process_document(Document(document), main_df)
 
     main_df.to_csv(r'grants.csv', index=False)
-
 
