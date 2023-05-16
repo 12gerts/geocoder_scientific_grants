@@ -27,24 +27,18 @@ class TableStruct:
 
 
 def convert_files() -> list:
-    files = os.listdir('projects')
     added_files = []
+    path_docx = Path('processed_project')
 
-    for pdf_file in files:
-        if pdf_file.startswith('.'):
-            continue
-
-        filename_docx = Path(f'{pdf_file[:-4]}.docx')
-        path_docx = Path('processed_project')
+    for pdf_file in Path('projects').glob('*.pdf'):
+        filename_docx = Path(pdf_file.stem + '.docx')
 
         docx_file = path_docx / filename_docx
+
         if not os.path.exists(docx_file):
             added_files.append(docx_file)
 
-            filename_pdf = Path(pdf_file)
-            path_pdf = Path('projects')
-
-            cv = Converter(str(path_pdf / filename_pdf))
+            cv = Converter(str(pdf_file))
             cv.convert(str(docx_file))
             cv.close()
 
@@ -81,7 +75,9 @@ def get_geocode(organization: str):
 
 
 def delete_quotes(organization: str) -> str:
-    organization = organization.replace('«', '"').replace('»', '"')
+    quotes = ('«', '»', '‹', '›', '‟', '”', '\'', '„', '‘', '’')
+    for quot in quotes:
+        organization = organization.replace(quot, '"')
 
     if not organization.count('"'):
         return organization
